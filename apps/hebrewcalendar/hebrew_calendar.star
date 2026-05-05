@@ -1,6 +1,6 @@
 """
 Applet: Hebrew Calendar
-Author: betzalelmoskowitz
+Author: betzmosk
 Summary: Shabbat times & parshah
 Description: Shows today's Hebrew date, the weekly Torah portion, and candle lighting and Havdalah times for the upcoming Shabbat (Jewish Sabbath) or Jewish holiday, for any location worldwide. Powered by the Hebcal REST API.
 """
