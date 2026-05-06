@@ -525,7 +525,7 @@ def main(config):
         if holiday_date != "":
             hol_t = time.parse_time(holiday_date[:10], "2006-01-02", "UTC")
             day_before = (hol_t - one_day).format("2006-01-02")
-            hol_end = havdalah[-1]["date"][:10] if havdalah else holiday_date[:10]
+            hol_end = holiday_date[:10]
             if not (day_before <= today_str and today_str <= hol_end):
                 holiday = ""
                 holiday_on_shabbat = False
