@@ -278,20 +278,24 @@ def make_slide(hebrew_date, display_name, name_color, rows):
             ),
             scroll_direction = "horizontal",
         ),
-        # Second row: parsha / holiday name in tom-thumb (gold or coral)
-        render.Padding(
-            pad = (2, 1, 0, 0),
-            child = render.Marquee(
-                width = 60,
-                child = render.Text(
-                    content = display_name,
-                    color = name_color,
-                    font = "tom-thumb",
-                ),
-                scroll_direction = "horizontal",
-            ),
-        ),
     ]
+
+    # Second row: parsha / holiday name — omitted when there is nothing to show.
+    if display_name != "":
+        children.append(
+            render.Padding(
+                pad = (2, 1, 0, 0),
+                child = render.Marquee(
+                    width = 60,
+                    child = render.Text(
+                        content = display_name,
+                        color = name_color,
+                        font = "tom-thumb",
+                    ),
+                    scroll_direction = "horizontal",
+                ),
+            ),
+        )
 
     for i, row in enumerate(rows[:2]):
         gap = [2, 2][i]
@@ -411,7 +415,20 @@ def build_display_name(holiday, holiday_on_shabbat, rosh_chodesh_month, rosh_cho
             return ("Shabbat | " + parsha_part, color)
         return (parsha_part, color)
     else:
-        return ("Shabbat" if shabbat_imminent else "Upcoming Shabbat", color)
+        return ("Shabbat" if shabbat_imminent else "", color)
+
+def within_24h_of_candle(candle_date_str, now, one_day):
+    """Return True if now is within 24 hours before the candle lighting time.
+
+    Parses the full ISO 8601 datetime from Hebcal (e.g. '2026-05-21T19:45:00-04:00')
+    so the window opens at the exact candle time minus 24h, not at midnight.
+    Falls back to a midnight-based check for date-only strings.
+    """
+    if "T" in candle_date_str:
+        candle_dt = time.parse_time(candle_date_str, "2006-01-02T15:04:05Z07:00", "UTC")
+        return now >= candle_dt - one_day
+    candle_d = time.parse_time(candle_date_str[:10], "2006-01-02", "UTC")
+    return now >= candle_d - one_day
 
 def is_split_week(candles, havdalah):
     """Return True when Yom Tov ends mid-week (before Shabbat).
@@ -445,7 +462,8 @@ def main(config):
     # ── Today's date ─────────────────────────────────────────────────────────
     # Normally derived from time.now().  Pass `today=YYYY-MM-DD` to override
     # (useful for testing a specific day within a holiday week).
-    today_str = config.get("today") or time.now().format("2006-01-02")
+    now = time.now()
+    today_str = config.get("today") or now.format("2006-01-02")
     today_hdate = fetch_hebrew_date(today_str)
 
     # ── Parse API items ───────────────────────────────────────────────────────
@@ -533,16 +551,15 @@ def main(config):
             holiday = ""
 
     # ── Temporal filter 2: candle / Havdalah times ───────────────────────────
-    # Only display time rows when today is within [first future candle − 1 day,
-    # last havdalah].  Outside this window the slide shows just the label.
+    # Display time rows when now is within [first candle − 24h, last havdalah].
+    # The start uses the exact candle datetime so the window opens 24 hours
+    # before the actual candle lighting time, not from the previous midnight.
     show_times = False
     near_shabbat = False  # True only when today ≥ 1 day before the LAST candle
     last_hav_date = ""  # saved so we can trim candles_disp below
     if candles_disp:
-        first_t = time.parse_time(candles_disp[0]["date"][:10], "2006-01-02", "UTC")
-        day_before = (first_t - one_day).format("2006-01-02")
         last_hav_date = havdalah_disp[-1]["date"][:10] if havdalah_disp else candles_disp[-1]["date"][:10]
-        show_times = (day_before <= today_str and today_str <= last_hav_date)
+        show_times = (within_24h_of_candle(candles_disp[0]["date"], now, one_day) and today_str <= last_hav_date)
     elif havdalah_disp:
         # All candles are past; still show the remaining havdalah today.
         last_hav_date = havdalah_disp[-1]["date"][:10]
@@ -646,21 +663,17 @@ def main(config):
         shab_c_disp = [c for c in candles_disp if c["date"][:10] == shab_c_date]
         shab_h_disp = [h for h in havdalah_disp if h["date"][:10] == shab_h_date]
 
-        # YT window: [first YT candle − 1 day, last YT havdalah]
+        # YT window: [first YT candle − 24h, last YT havdalah]
         show_yt = False
         if yt_c_full:
-            first_yt_c = time.parse_time(yt_c_full[0]["date"][:10], "2006-01-02", "UTC")
-            day_before_yt = (first_yt_c - one_day).format("2006-01-02")
             last_yt_hav = yt_h_full[-1]["date"][:10] if yt_h_full else yt_c_full[-1]["date"][:10]
-            show_yt = (day_before_yt <= today_str and today_str <= last_yt_hav)
+            show_yt = (within_24h_of_candle(yt_c_full[0]["date"], now, one_day) and today_str <= last_yt_hav)
 
-        # Shabbat window: [Shabbat candle − 1 day, Shabbat havdalah]
+        # Shabbat window: [Shabbat candle − 24h, Shabbat havdalah]
         show_shab_split = False
         if shab_c_full:
-            first_shab_c = time.parse_time(shab_c_full[0]["date"][:10], "2006-01-02", "UTC")
-            day_before_shab = (first_shab_c - one_day).format("2006-01-02")
             last_shab_hav = shab_h_full[-1]["date"][:10] if shab_h_full else shab_c_full[-1]["date"][:10]
-            show_shab_split = (day_before_shab <= today_str and today_str <= last_shab_hav)
+            show_shab_split = (within_24h_of_candle(shab_c_full[0]["date"], now, one_day) and today_str <= last_shab_hav)
 
         yt_raw = holiday if holiday != "" else "Yom Tov"
         yt_name, yt_color = build_display_name(
@@ -709,8 +722,14 @@ def main(config):
             # When display_name combines an event label and the parsha (e.g.
             # "Rosh Hashana | Parshat Haazinu"), split them so the holiday/RC name
             # appears on row 2 and the parsha gets its own row 3.
+            #
+            # For holidays connected to Shabbat or with multiple candle lightings
+            # (e.g. Shavuot, Pesach, Rosh Hashana), the temporal filter at line 524
+            # is skipped, so the holiday label would otherwise appear all week.
+            # Suppress it here — Case B/C shows it correctly once show_times=True.
+            holiday_case0 = "" if (holiday_on_shabbat or multi_candle) else holiday
             label_nm, label_col = build_display_name(
-                holiday,
+                holiday_case0,
                 holiday_on_shabbat,
                 rosh_chodesh_month,
                 rosh_chodesh_dates,
